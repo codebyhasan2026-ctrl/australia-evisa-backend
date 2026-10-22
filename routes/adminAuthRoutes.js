@@ -1,4 +1,3 @@
-//routes/adminAuthRoutes.js
 const express = require("express");
 const {
   adminLogin,

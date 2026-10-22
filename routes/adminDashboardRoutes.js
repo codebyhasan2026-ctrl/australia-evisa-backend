@@ -1,4 +1,3 @@
-// routes/adminDashboardRoutes.js
 const express = require("express");
 const {
   getAdminDashboardStats,

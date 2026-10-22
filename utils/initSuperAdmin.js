@@ -1,4 +1,3 @@
-//utils/initSuperAdmin.js
 const SuperAdmin = require("../models/superAdmin");
 
 const initSuperAdmin = async () => {

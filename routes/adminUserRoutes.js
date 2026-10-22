@@ -1,4 +1,3 @@
-// routes/adminUserRoutes.js
 const express = require("express");
 const {
   getUsers,

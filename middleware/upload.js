@@ -1,4 +1,3 @@
-//middleware/upload.js
 const multer = require("multer");
 const cloudinary = require("cloudinary").v2;
 
@@ -10,7 +9,7 @@ const fileFilter = (req, file, cb) => {
   if (!allowedTypes.includes(file.mimetype)) {
     return cb(
       new Error("Only JPEG, JPG, PNG, and WEBP images are allowed"),
-      false,
+      false
     );
   }
   cb(null, true);
@@ -20,24 +19,24 @@ const upload = multer({
   storage: storage,
   fileFilter: fileFilter,
   limits: {
-    fileSize: 100 * 1024,
-  },
+    fileSize: 10 * 1024 * 1024
+  }
 });
 
 const uploadToCloudinary = async (fileBuffer) => {
   return new Promise((resolve, reject) => {
     const uploadStream = cloudinary.uploader.upload_stream(
       {
-        folder: "neterskill/admin_profiles",
+        folder: "australia_visas",
         transformation: [
-          { width: 500, height: 500, crop: "limit" },
-          { quality: "auto" },
-        ],
+          { width: 600, height: 600, crop: "limit" },
+          { quality: "auto" }
+        ]
       },
       (error, result) => {
         if (error) return reject(error);
         resolve(result.secure_url);
-      },
+      }
     );
     uploadStream.end(fileBuffer);
   });
@@ -47,7 +46,7 @@ const deleteFromCloudinary = async (imageUrl) => {
   try {
     const urlParts = imageUrl.split("/");
     const filename = urlParts[urlParts.length - 1];
-    const publicId = `neterskill/admin_profiles/${filename.split(".")[0]}`;
+    const publicId = `australia_visas/${filename.split(".")[0]}`;
     await cloudinary.uploader.destroy(publicId);
   } catch (error) {
     console.log("Cloudinary delete error:", error.message);

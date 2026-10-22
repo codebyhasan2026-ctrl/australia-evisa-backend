@@ -1,4 +1,3 @@
-// controllers/adminDashboardController.js
 const User = require("../models/user");
 
 exports.getAdminDashboardStats = async (req, res) => {
