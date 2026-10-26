@@ -26,7 +26,24 @@ const visaApplicationSchema = new mongoose.Schema(
     passportNumber: { type: String, required: true, uppercase: true, trim: true, index: true },
     issuedCountry: { type: String, required: true, uppercase: true, trim: true },
     passportIssuedDate: { type: String, required: true, trim: true },
-    passportExpireDate: { type: String, required: true, trim: true }
+    passportExpireDate: { type: String, required: true, trim: true },
+
+    documents: {
+      jobLetter: { type: String, default: "" },
+      lmias: { type: String, default: "" },
+      workPermit: { type: String, default: "" },
+      visa: { type: String, default: "" },
+      visaForm: { type: String, default: "" },
+      airTicket: { type: String, default: "" },
+      jobLetter1: { type: String, default: "" },
+      jobLetter2: { type: String, default: "" },
+      jobLetter3: { type: String, default: "" },
+      jobLetter4: { type: String, default: "" },
+      lmias1: { type: String, default: "" },
+      lmias2: { type: String, default: "" },
+      lmias3: { type: String, default: "" },
+      lmias4: { type: String, default: "" }
+    }
   },
   { timestamps: true }
 );

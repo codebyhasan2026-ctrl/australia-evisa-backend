@@ -7,7 +7,9 @@ const {
   getAllVisaApplications,
   getVisaApplicationById,
   updateVisaApplication,
-  deleteVisaApplication
+  deleteVisaApplication,
+  uploadVisaDocument,
+  deleteVisaDocument
 } = require("../controllers/visaController");
 
 const router = express.Router();
@@ -20,5 +22,8 @@ router.get("/admin/:id", adminAuth, getVisaApplicationById);
 router.post("/admin", adminAuth, upload.single("photo"), createVisaApplication);
 router.put("/admin/:id", adminAuth, upload.single("photo"), updateVisaApplication);
 router.delete("/admin/:id", adminAuth, deleteVisaApplication);
+
+router.post("/admin/:id/document", adminAuth, upload.single("file"), uploadVisaDocument);
+router.delete("/admin/:id/document/:docKey", adminAuth, deleteVisaDocument);
 
 module.exports = router;

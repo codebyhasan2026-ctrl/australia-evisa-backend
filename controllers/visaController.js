@@ -1,5 +1,9 @@
 const VisaApplication = require("../models/visaApplication");
-const { uploadToCloudinary } = require("../middleware/upload");
+const {
+  uploadToCloudinary,
+  uploadDocumentToCloudinary,
+  deleteFromCloudinary
+} = require("../middleware/upload");
 
 const normalizeDate = (dateStr) => {
   if (!dateStr) return "";
@@ -69,11 +73,13 @@ exports.verifyVisaStatus = async (req, res) => {
       });
     }
 
+    const visaData = visa.toObject();
+
     return res.status(200).json({
       success: true,
       message: "Visa record found successfully",
       data: {
-        ...visa.toObject(),
+        ...visaData,
         displayDob: formatDateForDisplay(visa.dob),
         displayIssuedDate: formatDateForDisplay(visa.passportIssuedDate),
         displayExpireDate: formatDateForDisplay(visa.passportExpireDate)
@@ -212,6 +218,91 @@ exports.deleteVisaApplication = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: "Failed to delete visa application"
+    });
+  }
+};
+
+exports.uploadVisaDocument = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { docKey } = req.body;
+
+    if (!req.file) {
+      return res.status(400).json({
+        success: false,
+        message: "No document file provided"
+      });
+    }
+
+    if (!docKey) {
+      return res.status(400).json({
+        success: false,
+        message: "docKey is required"
+      });
+    }
+
+    const visa = await VisaApplication.findById(id);
+    if (!visa) {
+      return res.status(404).json({
+        success: false,
+        message: "Visa application not found"
+      });
+    }
+
+    const docUrl = await uploadDocumentToCloudinary(req.file.buffer);
+
+    if (!visa.documents) {
+      visa.documents = {};
+    }
+    visa.documents[docKey] = docUrl;
+    visa.markModified("documents");
+    await visa.save();
+
+    return res.status(200).json({
+      success: true,
+      message: "Document uploaded successfully",
+      data: visa
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Failed to upload document"
+    });
+  }
+};
+
+exports.deleteVisaDocument = async (req, res) => {
+  try {
+    const { id, docKey } = req.params;
+
+    const visa = await VisaApplication.findById(id);
+    if (!visa) {
+      return res.status(404).json({
+        success: false,
+        message: "Visa application not found"
+      });
+    }
+
+    if (visa.documents && visa.documents[docKey]) {
+      const existingUrl = visa.documents[docKey];
+      visa.documents[docKey] = "";
+      visa.markModified("documents");
+      await visa.save();
+
+      if (existingUrl) {
+        deleteFromCloudinary(existingUrl).catch(() => {});
+      }
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Document deleted successfully",
+      data: visa
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Failed to delete document"
     });
   }
 };

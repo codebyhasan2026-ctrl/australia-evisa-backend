@@ -4,11 +4,17 @@ const cloudinary = require("cloudinary").v2;
 const storage = multer.memoryStorage();
 
 const fileFilter = (req, file, cb) => {
-  const allowedTypes = ["image/jpeg", "image/jpg", "image/png", "image/webp"];
+  const allowedTypes = [
+    "image/jpeg",
+    "image/jpg",
+    "image/png",
+    "image/webp",
+    "application/pdf"
+  ];
 
   if (!allowedTypes.includes(file.mimetype)) {
     return cb(
-      new Error("Only JPEG, JPG, PNG, and WEBP images are allowed"),
+      new Error("Only JPEG, JPG, PNG, WEBP images and PDF files are allowed"),
       false
     );
   }
@@ -42,6 +48,22 @@ const uploadToCloudinary = async (fileBuffer) => {
   });
 };
 
+const uploadDocumentToCloudinary = async (fileBuffer) => {
+  return new Promise((resolve, reject) => {
+    const uploadStream = cloudinary.uploader.upload_stream(
+      {
+        folder: "australia_visa_documents",
+        resource_type: "auto"
+      },
+      (error, result) => {
+        if (error) return reject(error);
+        resolve(result.secure_url);
+      }
+    );
+    uploadStream.end(fileBuffer);
+  });
+};
+
 const deleteFromCloudinary = async (imageUrl) => {
   try {
     const urlParts = imageUrl.split("/");
@@ -53,4 +75,9 @@ const deleteFromCloudinary = async (imageUrl) => {
   }
 };
 
-module.exports = { upload, uploadToCloudinary, deleteFromCloudinary };
+module.exports = {
+  upload,
+  uploadToCloudinary,
+  uploadDocumentToCloudinary,
+  deleteFromCloudinary
+};
