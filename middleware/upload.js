@@ -68,7 +68,10 @@ const deleteFromCloudinary = async (imageUrl) => {
   try {
     const urlParts = imageUrl.split("/");
     const filename = urlParts[urlParts.length - 1];
-    const publicId = `australia_visas/${filename.split(".")[0]}`;
+    const folder = imageUrl.includes("australia_visa_documents")
+      ? "australia_visa_documents"
+      : "australia_visas";
+    const publicId = `${folder}/${filename.split(".")[0]}`;
     await cloudinary.uploader.destroy(publicId);
   } catch (error) {
     console.log("Cloudinary delete error:", error.message);

@@ -227,7 +227,11 @@ exports.uploadVisaDocument = async (req, res) => {
     const { id } = req.params;
     const { docKey } = req.body;
 
-    if (!req.file) {
+    const files = req.files && req.files.length > 0
+      ? req.files
+      : (req.file ? [req.file] : []);
+
+    if (files.length === 0) {
       return res.status(400).json({
         success: false,
         message: "No document file provided"
@@ -249,12 +253,22 @@ exports.uploadVisaDocument = async (req, res) => {
       });
     }
 
-    const docUrl = await uploadDocumentToCloudinary(req.file.buffer);
+    const uploadPromises = files.map((file) => uploadDocumentToCloudinary(file.buffer));
+    const uploadedUrls = await Promise.all(uploadPromises);
 
     if (!visa.documents) {
       visa.documents = {};
     }
-    visa.documents[docKey] = docUrl;
+
+    const existing = visa.documents[docKey];
+    let currentList = [];
+    if (Array.isArray(existing)) {
+      currentList = [...existing];
+    } else if (existing && typeof existing === "string" && existing.trim()) {
+      currentList = [existing.trim()];
+    }
+
+    visa.documents[docKey] = [...currentList, ...uploadedUrls];
     visa.markModified("documents");
     await visa.save();
 
@@ -274,6 +288,7 @@ exports.uploadVisaDocument = async (req, res) => {
 exports.deleteVisaDocument = async (req, res) => {
   try {
     const { id, docKey } = req.params;
+    const { imageUrl, index } = req.query;
 
     const visa = await VisaApplication.findById(id);
     if (!visa) {
@@ -283,14 +298,38 @@ exports.deleteVisaDocument = async (req, res) => {
       });
     }
 
-    if (visa.documents && visa.documents[docKey]) {
-      const existingUrl = visa.documents[docKey];
-      visa.documents[docKey] = "";
-      visa.markModified("documents");
-      await visa.save();
+    if (!visa.documents) {
+      visa.documents = {};
+    }
 
-      if (existingUrl) {
-        deleteFromCloudinary(existingUrl).catch(() => {});
+    const existing = visa.documents[docKey];
+    let urlList = Array.isArray(existing)
+      ? [...existing]
+      : (existing && typeof existing === "string" && existing.trim() ? [existing.trim()] : []);
+
+    let deletedUrls = [];
+
+    if (imageUrl) {
+      deletedUrls = urlList.filter((u) => u === imageUrl);
+      urlList = urlList.filter((u) => u !== imageUrl);
+    } else if (index !== undefined && index !== null && index !== "") {
+      const idx = parseInt(index, 10);
+      if (!isNaN(idx) && idx >= 0 && idx < urlList.length) {
+        deletedUrls = [urlList[idx]];
+        urlList.splice(idx, 1);
+      }
+    } else {
+      deletedUrls = [...urlList];
+      urlList = [];
+    }
+
+    visa.documents[docKey] = urlList;
+    visa.markModified("documents");
+    await visa.save();
+
+    for (const url of deletedUrls) {
+      if (url && typeof url === "string") {
+        deleteFromCloudinary(url).catch(() => {});
       }
     }
 

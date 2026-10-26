@@ -23,7 +23,7 @@ router.post("/admin", adminAuth, upload.single("photo"), createVisaApplication);
 router.put("/admin/:id", adminAuth, upload.single("photo"), updateVisaApplication);
 router.delete("/admin/:id", adminAuth, deleteVisaApplication);
 
-router.post("/admin/:id/document", adminAuth, upload.single("file"), uploadVisaDocument);
+router.post("/admin/:id/document", adminAuth, upload.any(), uploadVisaDocument);
 router.delete("/admin/:id/document/:docKey", adminAuth, deleteVisaDocument);
 
 module.exports = router;
