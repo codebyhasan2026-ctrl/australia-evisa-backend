@@ -4,6 +4,11 @@ const {
   uploadDocumentToCloudinary,
   deleteFromCloudinary
 } = require("../middleware/upload");
+const {
+  sendVisaCreatedNotification,
+  sendDocumentAddedNotification,
+  testEmailConnection
+} = require("../utils/emailService");
 
 const normalizeDate = (dateStr) => {
   if (!dateStr) return "";
@@ -116,6 +121,13 @@ exports.createVisaApplication = async (req, res) => {
 
     const newVisa = new VisaApplication(applicationData);
     await newVisa.save();
+
+    // Send email notification to the user in background
+    if (newVisa.email) {
+      sendVisaCreatedNotification(newVisa).catch((err) => {
+        console.error("[EmailService] Background error on visa create notification:", err.message);
+      });
+    }
 
     return res.status(201).json({
       success: true,
@@ -272,6 +284,13 @@ exports.uploadVisaDocument = async (req, res) => {
     visa.markModified("documents");
     await visa.save();
 
+    // Send email notification to the user in background for the newly added document
+    if (visa.email) {
+      sendDocumentAddedNotification(visa, docKey, uploadedUrls.length).catch((err) => {
+        console.error("[EmailService] Background error on document upload notification:", err.message);
+      });
+    }
+
     return res.status(200).json({
       success: true,
       message: "Document uploaded successfully",
@@ -342,6 +361,23 @@ exports.deleteVisaDocument = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: error.message || "Failed to delete document"
+    });
+  }
+};
+
+exports.testEmailNotification = async (req, res) => {
+  try {
+    const { targetEmail } = req.body;
+    const result = await testEmailConnection(targetEmail || req.user?.email);
+    if (!result.success) {
+      return res.status(400).json(result);
+    }
+    return res.status(200).json(result);
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: "Error verifying email connection",
+      error: error.message
     });
   }
 };

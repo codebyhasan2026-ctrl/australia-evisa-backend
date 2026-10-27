@@ -9,7 +9,8 @@ const {
   updateVisaApplication,
   deleteVisaApplication,
   uploadVisaDocument,
-  deleteVisaDocument
+  deleteVisaDocument,
+  testEmailNotification
 } = require("../controllers/visaController");
 
 const router = express.Router();
@@ -17,6 +18,7 @@ const router = express.Router();
 router.post("/verify", verifyVisaStatus);
 router.post("/enquiry", verifyVisaStatus);
 
+router.post("/admin/test-email", adminAuth, testEmailNotification);
 router.get("/admin/all", adminAuth, getAllVisaApplications);
 router.get("/admin/:id", adminAuth, getVisaApplicationById);
 router.post("/admin", adminAuth, upload.single("photo"), createVisaApplication);

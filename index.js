@@ -47,4 +47,8 @@ app.use("/api/visa", visaRoutes);
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);
+  if (process.env.EMAIL_USER) {
+    console.log(`[EmailService] Ready with sender: ${process.env.EMAIL_USER}`);
+  }
 });
+
