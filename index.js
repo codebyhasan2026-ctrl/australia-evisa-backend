@@ -47,8 +47,8 @@ app.use("/api/admin", adminDashboardRoutes);
 app.use("/api/visa", visaRoutes);
 
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => {
-  console.log(`Server running on http://localhost:${PORT}`);
+app.listen(PORT, "0.0.0.0", () => {
+  console.log(`Server running on port ${PORT}`);
   if (process.env.EMAIL_USER) {
     console.log(`[EmailService] Ready with sender: ${process.env.EMAIL_USER}`);
   }

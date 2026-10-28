@@ -46,13 +46,49 @@ const getFromAddress = () => {
   return `"${fromSetting}" <${senderEmail}>`;
 };
 
-// Dispatch email via Brevo HTTPS REST API (Port 443) or fallback to Nodemailer SMTP
+// Dispatch email via Resend (Port 443 HTTPS), Brevo, or Nodemailer SMTP fallback
 const sendMailMessage = async ({ to, toName, subject, text, html, attachments = [] }) => {
+  const resendApiKey = (process.env.RESEND_API_KEY || "").trim();
+  const resendFrom = (process.env.RESEND_FROM || "Australia Work E-Visa Portal <onboarding@resend.dev>").trim();
+
+  // Priority 1: Resend HTTPS REST API (Port 443 - Perfect for Render)
+  if (resendApiKey) {
+    try {
+      const payload = {
+        from: resendFrom,
+        to: [to.trim()],
+        subject: subject,
+        html: html,
+        text: text
+      };
+
+      const res = await fetch("https://api.resend.com/emails", {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${resendApiKey}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(payload)
+      });
+
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
+        throw new Error(data.message || `Resend API HTTP error: ${res.status}`);
+      }
+
+      console.log(`[EmailService] Resend API Email dispatched successfully to ${to}. Id: ${data.id}`);
+      return { success: true, messageId: data.id, provider: "resend" };
+    } catch (resendErr) {
+      console.warn("[EmailService] Resend API failed, falling back...", resendErr.message);
+    }
+  }
+
   const brevoApiKey = (process.env.BREVO_API_KEY || "").trim();
   const brevoSenderEmail = (process.env.BREVO_SENDER_EMAIL || process.env.EMAIL_USER || "").trim();
   const brevoSenderName = (process.env.BREVO_SENDER_NAME || process.env.EMAIL_FROM || "Australia Work E-Visa Portal").trim().replace(/^["']|["']$/g, "");
 
-  // Priority 1: Brevo HTTPS REST API (100% firewall proof on shared hosting/Webuzo/cPanel)
+  // Priority 2: Brevo HTTPS REST API (Port 443)
   if (brevoApiKey && brevoSenderEmail) {
     try {
       const payload = {
