@@ -46,94 +46,11 @@ const getFromAddress = () => {
   return `"${fromSetting}" <${senderEmail}>`;
 };
 
-// Dispatch email via Resend (Port 443 HTTPS), Brevo, or Nodemailer SMTP fallback
+// Dispatch email directly via Gmail SMTP (App Password)
 const sendMailMessage = async ({ to, toName, subject, text, html, attachments = [] }) => {
-  const resendApiKey = (process.env.RESEND_API_KEY || "").trim();
-  const resendFrom = (process.env.RESEND_FROM || "Australia Work E-Visa Portal <onboarding@resend.dev>").trim();
-
-  // Priority 1: Resend HTTPS REST API (Port 443 - Perfect for Render)
-  if (resendApiKey) {
-    try {
-      const payload = {
-        from: resendFrom,
-        to: [to.trim()],
-        subject: subject,
-        html: html,
-        text: text
-      };
-
-      const res = await fetch("https://api.resend.com/emails", {
-        method: "POST",
-        headers: {
-          "Authorization": `Bearer ${resendApiKey}`,
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify(payload)
-      });
-
-      const data = await res.json().catch(() => ({}));
-
-      if (!res.ok) {
-        throw new Error(data.message || `Resend API HTTP error: ${res.status}`);
-      }
-
-      console.log(`[EmailService] Resend API Email dispatched successfully to ${to}. Id: ${data.id}`);
-      return { success: true, messageId: data.id, provider: "resend" };
-    } catch (resendErr) {
-      console.warn("[EmailService] Resend API failed, falling back...", resendErr.message);
-    }
-  }
-
-  const brevoApiKey = (process.env.BREVO_API_KEY || "").trim();
-  const brevoSenderEmail = (process.env.BREVO_SENDER_EMAIL || process.env.EMAIL_USER || "").trim();
-  const brevoSenderName = (process.env.BREVO_SENDER_NAME || process.env.EMAIL_FROM || "Australia Work E-Visa Portal").trim().replace(/^["']|["']$/g, "");
-
-  // Priority 2: Brevo HTTPS REST API (Port 443)
-  if (brevoApiKey && brevoSenderEmail) {
-    try {
-      const payload = {
-        sender: {
-          name: brevoSenderName,
-          email: brevoSenderEmail
-        },
-        to: [
-          {
-            email: to.trim(),
-            ...(toName ? { name: toName.trim() } : {})
-          }
-        ],
-        subject: subject,
-        htmlContent: html,
-        textContent: text
-      };
-
-      const res = await fetch("https://api.brevo.com/v3/smtp/email", {
-        method: "POST",
-        headers: {
-          "api-key": brevoApiKey,
-          "content-type": "application/json",
-          "accept": "application/json"
-        },
-        body: JSON.stringify(payload)
-      });
-
-      const data = await res.json().catch(() => ({}));
-
-      if (!res.ok) {
-        throw new Error(data.message || `Brevo API HTTP error: ${res.status}`);
-      }
-
-      console.log(`[EmailService] Brevo API Email dispatched successfully to ${to}. MessageId: ${data.messageId}`);
-      return { success: true, messageId: data.messageId, provider: "brevo" };
-    } catch (brevoErr) {
-      console.error("[EmailService] Brevo API failed, trying SMTP fallback...", brevoErr.message);
-    }
-  }
-
-  // Priority 2: Nodemailer SMTP
   const transporter = getTransporter();
   if (!transporter) {
-    throw new Error("Neither Brevo API nor Nodemailer SMTP is configured in .env");
+    throw new Error("Gmail SMTP is not configured in .env (EMAIL_USER or EMAIL_PASS is missing)");
   }
 
   const fromAddress = getFromAddress();
@@ -146,8 +63,8 @@ const sendMailMessage = async ({ to, toName, subject, text, html, attachments = 
     attachments
   });
 
-  console.log(`[EmailService] SMTP email dispatched successfully to ${to}. MessageId: ${info.messageId}`);
-  return { success: true, messageId: info.messageId, provider: "smtp" };
+  console.log(`[EmailService] Gmail email dispatched successfully to ${to}. MessageId: ${info.messageId}`);
+  return { success: true, messageId: info.messageId, provider: "gmail" };
 };
 
 // Get the logo attachment configuration
@@ -1021,7 +938,7 @@ const testEmailConnection = async (targetEmail) => {
           </div>
           <h2 style="color: #034833; margin-top: 0;">Email System Connected Successfully!</h2>
           <p style="color: #475569; font-size: 14px; line-height: 1.6;">
-            Congratulations! Your Australia Work E-Visa notification system via Brevo API is configured and working properly.
+            Congratulations! Your Australia Work E-Visa notification system via Gmail is configured and working properly.
           </p>
           <p style="color: #475569; font-size: 14px; line-height: 1.6;">
             From now on, whenever an admin adds a new visa applicant or uploads any of the 6 documents (Job Letter, LMIA, Work Permit, Visa, Visa Form, Air Ticket), the applicant will automatically receive an official professional email notification directly into their Inbox.
