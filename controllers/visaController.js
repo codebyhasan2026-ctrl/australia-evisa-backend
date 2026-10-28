@@ -1,14 +1,17 @@
 const VisaApplication = require("../models/visaApplication");
 const {
   uploadToCloudinary,
+  uploadBase64ToCloudinary,
   uploadDocumentToCloudinary,
   deleteFromCloudinary
 } = require("../middleware/upload");
 const {
   sendVisaCreatedNotification,
   sendDocumentAddedNotification,
+  sendVisaUpdatedNotification,
   testEmailConnection
 } = require("../utils/emailService");
+
 
 const normalizeDate = (dateStr) => {
   if (!dateStr) return "";
@@ -105,6 +108,8 @@ exports.createVisaApplication = async (req, res) => {
 
     if (req.file) {
       photoUrl = await uploadToCloudinary(req.file.buffer);
+    } else if (photoUrl && typeof photoUrl === "string" && photoUrl.startsWith("data:image")) {
+      photoUrl = await uploadBase64ToCloudinary(photoUrl);
     }
 
     const applicationData = {
@@ -144,7 +149,11 @@ exports.createVisaApplication = async (req, res) => {
 
 exports.getAllVisaApplications = async (req, res) => {
   try {
-    const visas = await VisaApplication.find().sort({ createdAt: -1 });
+    const visas = await VisaApplication.find()
+      .select("-photo -documents")
+      .sort({ createdAt: -1 })
+      .lean();
+
     return res.status(200).json({
       success: true,
       count: visas.length,
@@ -185,6 +194,8 @@ exports.updateVisaApplication = async (req, res) => {
 
     if (req.file) {
       updateData.photo = await uploadToCloudinary(req.file.buffer);
+    } else if (updateData.photo && typeof updateData.photo === "string" && updateData.photo.startsWith("data:image")) {
+      updateData.photo = await uploadBase64ToCloudinary(updateData.photo);
     }
 
     const updatedVisa = await VisaApplication.findByIdAndUpdate(
@@ -200,6 +211,13 @@ exports.updateVisaApplication = async (req, res) => {
       });
     }
 
+    // Send email notification to the user in background upon visa update
+    if (updatedVisa.email) {
+      sendVisaUpdatedNotification(updatedVisa).catch((err) => {
+        console.error("[EmailService] Background error on visa update notification:", err.message);
+      });
+    }
+
     return res.status(200).json({
       success: true,
       message: "Visa application updated successfully",
@@ -212,6 +230,7 @@ exports.updateVisaApplication = async (req, res) => {
     });
   }
 };
+
 
 exports.deleteVisaApplication = async (req, res) => {
   try {

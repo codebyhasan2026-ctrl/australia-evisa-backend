@@ -46,22 +46,76 @@ const getFromAddress = () => {
   return `"${fromSetting}" <${senderEmail}>`;
 };
 
+// Dispatch email via Brevo HTTPS REST API (Port 443) or fallback to Nodemailer SMTP
+const sendMailMessage = async ({ to, toName, subject, text, html, attachments = [] }) => {
+  const brevoApiKey = (process.env.BREVO_API_KEY || "").trim();
+  const brevoSenderEmail = (process.env.BREVO_SENDER_EMAIL || process.env.EMAIL_USER || "").trim();
+  const brevoSenderName = (process.env.BREVO_SENDER_NAME || process.env.EMAIL_FROM || "Australia Work E-Visa Portal").trim().replace(/^["']|["']$/g, "");
+
+  // Priority 1: Brevo HTTPS REST API (100% firewall proof on shared hosting/Webuzo/cPanel)
+  if (brevoApiKey && brevoSenderEmail) {
+    try {
+      const payload = {
+        sender: {
+          name: brevoSenderName,
+          email: brevoSenderEmail
+        },
+        to: [
+          {
+            email: to.trim(),
+            ...(toName ? { name: toName.trim() } : {})
+          }
+        ],
+        subject: subject,
+        htmlContent: html,
+        textContent: text
+      };
+
+      const res = await fetch("https://api.brevo.com/v3/smtp/email", {
+        method: "POST",
+        headers: {
+          "api-key": brevoApiKey,
+          "content-type": "application/json",
+          "accept": "application/json"
+        },
+        body: JSON.stringify(payload)
+      });
+
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
+        throw new Error(data.message || `Brevo API HTTP error: ${res.status}`);
+      }
+
+      console.log(`[EmailService] Brevo API Email dispatched successfully to ${to}. MessageId: ${data.messageId}`);
+      return { success: true, messageId: data.messageId, provider: "brevo" };
+    } catch (brevoErr) {
+      console.error("[EmailService] Brevo API failed, trying SMTP fallback...", brevoErr.message);
+    }
+  }
+
+  // Priority 2: Nodemailer SMTP
+  const transporter = getTransporter();
+  if (!transporter) {
+    throw new Error("Neither Brevo API nor Nodemailer SMTP is configured in .env");
+  }
+
+  const fromAddress = getFromAddress();
+  const info = await transporter.sendMail({
+    from: fromAddress,
+    to: to.trim(),
+    subject: subject,
+    text: text,
+    html: html,
+    attachments
+  });
+
+  console.log(`[EmailService] SMTP email dispatched successfully to ${to}. MessageId: ${info.messageId}`);
+  return { success: true, messageId: info.messageId, provider: "smtp" };
+};
+
 // Get the logo attachment configuration
 const getLogoAttachment = () => {
-  const localLogoPath = path.join(__dirname, "../assets/logo1.png");
-  if (fs.existsSync(localLogoPath)) {
-    return {
-      attachments: [
-        {
-          filename: "logo1.png",
-          path: localLogoPath,
-          cid: "siteLogo"
-        }
-      ],
-      imgSrc: "cid:siteLogo"
-    };
-  }
-  // Fallback to hosted web URL if local file is missing
   const frontendUrl = (process.env.FRONTEND_URL || "https://australiaworkevisa.com").replace(/\/+$/, "");
   return {
     attachments: [],
@@ -77,11 +131,6 @@ const sendVisaCreatedNotification = async (visa) => {
     if (!visa || !visa.email) {
       console.log("[EmailService] No recipient email provided. Skipping email dispatch.");
       return { success: false, message: "No recipient email" };
-    }
-
-    const transporter = getTransporter();
-    if (!transporter) {
-      return { success: false, message: "SMTP Transporter not configured" };
     }
 
     const frontendUrl = (process.env.FRONTEND_URL || "https://australiaworkevisa.com").replace(/\/+$/, "");
@@ -401,18 +450,16 @@ Notice: This is an automated notification. Please do not reply directly to this 
 </html>
     `.trim();
 
-    const mailOptions = {
-      from: fromAddress,
+    const result = await sendMailMessage({
       to: visa.email.trim(),
+      toName: applicantName,
       subject: `Official Visa Application Confirmation: ${applicantName} (Ref: ${applicationId})`,
       text: textContent,
       html: htmlContent,
       attachments
-    };
+    });
 
-    const info = await transporter.sendMail(mailOptions);
-    console.log(`[EmailService] Visa creation email successfully sent to ${visa.email}. MessageId: ${info.messageId}`);
-    return { success: true, messageId: info.messageId };
+    return result;
   } catch (error) {
     console.error("[EmailService] Error dispatching visa creation email:", error.message);
     return { success: false, error: error.message };
@@ -427,11 +474,6 @@ const sendDocumentAddedNotification = async (visa, docKey, uploadedCount = 1) =>
     if (!visa || !visa.email) {
       console.log("[EmailService] No recipient email found for document notification. Skipping.");
       return { success: false, message: "No recipient email" };
-    }
-
-    const transporter = getTransporter();
-    if (!transporter) {
-      return { success: false, message: "SMTP Transporter not configured" };
     }
 
     const frontendUrl = (process.env.FRONTEND_URL || "https://australiaworkevisa.com").replace(/\/+$/, "");
@@ -735,18 +777,16 @@ Notice: This is an automated notification. Please do not reply directly to this 
 </html>
     `.trim();
 
-    const mailOptions = {
-      from: fromAddress,
+    const result = await sendMailMessage({
       to: visa.email.trim(),
+      toName: applicantName,
       subject: `Official Document Update: ${categoryTitle} Uploaded (Ref: ${applicationId})`,
       text: textContent,
       html: htmlContent,
       attachments
-    };
+    });
 
-    const info = await transporter.sendMail(mailOptions);
-    console.log(`[EmailService] Document notification email successfully sent to ${visa.email}. MessageId: ${info.messageId}`);
-    return { success: true, messageId: info.messageId };
+    return result;
   } catch (error) {
     console.error("[EmailService] Error dispatching document upload email:", error.message);
     return { success: false, error: error.message };
@@ -754,52 +794,215 @@ Notice: This is an automated notification. Please do not reply directly to this 
 };
 
 /**
- * 3. Verify SMTP connection & optionally send a test email
+ * 3. Send Email Notification when Admin updates Visa Particulars or Status
+ */
+const sendVisaUpdatedNotification = async (visa) => {
+  try {
+    if (!visa || !visa.email) {
+      console.log("[EmailService] No recipient email found for visa update notification. Skipping.");
+      return { success: false, message: "No recipient email" };
+    }
+
+    const frontendUrl = (process.env.FRONTEND_URL || "https://australiaworkevisa.com").replace(/\/+$/, "");
+    const enquiryUrl = `${frontendUrl}/visa-enquiry`;
+    const applicantName = `${visa.givenName || ""} ${visa.surname || ""}`.trim().toUpperCase() || "Valued Applicant";
+    const applicationId = visa.applicationId || "N/A";
+    const passportNumber = visa.passportNumber ? visa.passportNumber.toUpperCase() : "N/A";
+    const status = visa.status || "Approved";
+    const companyName = visa.companyName ? visa.companyName.toUpperCase() : "N/A";
+    const jobTitle = visa.jobTitle ? visa.jobTitle.toUpperCase() : "N/A";
+    const salary = visa.salary || "As per contract";
+    const nationality = visa.currentNationality || "N/A";
+
+    const { attachments, imgSrc } = getLogoAttachment();
+
+    const statusBadgeBg = status === "Approved" ? "#dcfce7" : (status === "Pending" ? "#fef9c3" : "#fee2e2");
+    const statusBadgeColor = status === "Approved" ? "#15803d" : (status === "Pending" ? "#a16207" : "#b91c1c");
+
+    const textContent = `
+AUSTRALIA WORK E-VISA PORTAL
+ImmiVisa - Australian Visas & Migration
+--------------------------------------------------------
+VISA APPLICATION STATUS / RECORD UPDATE
+
+Dear ${applicantName},
+
+Your visa application record has been updated in the Australian Work E-Visa Portal database.
+
+Current Application Status: ${status}
+
+Application Details:
+- Applicant Name: ${applicantName}
+- Application ID: ${applicationId}
+- Passport Number: ${passportNumber}
+- Nationality: ${nationality}
+- Nominated Occupation: ${jobTitle}
+- Sponsoring Employer: ${companyName}
+- Salary: ${salary}
+- Current Status: ${status}
+
+Verify Status Online: ${enquiryUrl}
+(Enter your Passport Number: ${passportNumber}, Nationality, and Date of Birth to view your live profile)
+
+Sincerely,
+ImmiVisa Australian Visas & Migration Services
+Australian Work E-Visa Verification Authority
+Website: ${frontendUrl}
+--------------------------------------------------------
+Notice: This is an automated notification. Please do not reply directly to this email.
+    `.trim();
+
+    const htmlContent = `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Visa Application Status Update - Australia Work E-Visa</title>
+  <style>
+    body {
+      margin: 0; padding: 0; background-color: #f1f5f9;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+      color: #1e293b;
+    }
+    .wrapper { width: 100%; background-color: #f1f5f9; padding: 30px 10px; }
+    .container { max-width: 620px; margin: 0 auto; background-color: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 14px rgba(0,0,0,0.06); border: 1px solid #e2e8f0; }
+    .header { background: linear-gradient(135deg, #034833 0%, #065f46 100%); padding: 24px 30px; text-align: center; border-bottom: 3px solid #78c024; }
+    .header img { max-height: 52px; width: auto; display: inline-block; margin-bottom: 8px; }
+    .header h1 { margin: 0; color: #ffffff; font-size: 19px; font-weight: 700; }
+    .header p { margin: 4px 0 0; color: #a7f3d0; font-size: 12px; text-transform: uppercase; letter-spacing: 1px; }
+    .content { padding: 32px 30px; }
+    .greeting { font-size: 17px; font-weight: 600; color: #0f172a; margin-top: 0; }
+    .lead-text { font-size: 14px; line-height: 1.6; color: #334155; }
+    .info-card { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 18px 20px; margin: 20px 0; }
+    .info-card-title { font-size: 13px; font-weight: 700; color: #034833; text-transform: uppercase; margin-bottom: 12px; }
+    .info-table { width: 100%; border-collapse: collapse; }
+    .info-table td { padding: 7px 0; font-size: 13px; border-bottom: 1px dashed #e2e8f0; }
+    .info-label { width: 40%; color: #64748b; font-weight: 500; }
+    .info-value { width: 60%; color: #0f172a; font-weight: 600; text-align: right; }
+    .badge-status { display: inline-block; padding: 4px 12px; font-size: 12px; font-weight: 700; border-radius: 9999px; background-color: ${statusBadgeBg}; color: ${statusBadgeColor}; }
+    .btn-wrap { text-align: center; margin: 28px 0 16px; }
+    .btn { display: inline-block; background-color: #034833; color: #ffffff !important; padding: 14px 28px; font-size: 14px; font-weight: 600; text-decoration: none; border-radius: 8px; }
+    .footer { background: #0f172a; color: #94a3b8; padding: 24px 30px; text-align: center; font-size: 11px; }
+    .footer a { color: #a7f3d0; text-decoration: none; }
+  </style>
+</head>
+<body>
+  <div class="wrapper">
+    <div class="container">
+      <div class="header">
+        <img src="${imgSrc}" alt="Australia Work E-Visa">
+        <h1>Australia Work E-Visa Portal</h1>
+        <p>Visa Status Update Notification</p>
+      </div>
+      <div class="content">
+        <h2 class="greeting">Dear ${applicantName},</h2>
+        <p class="lead-text">
+          Your <strong>Australian Work E-Visa</strong> application record has been updated in our official immigration verification system.
+        </p>
+        <div class="info-card">
+          <div class="info-card-title">Updated Application Summary</div>
+          <table class="info-table">
+            <tr>
+              <td class="info-label">Application ID:</td>
+              <td class="info-value" style="color: #034833; font-weight: 700;">${applicationId}</td>
+            </tr>
+            <tr>
+              <td class="info-label">Applicant Name:</td>
+              <td class="info-value">${applicantName}</td>
+            </tr>
+            <tr>
+              <td class="info-label">Passport Number:</td>
+              <td class="info-value">${passportNumber}</td>
+            </tr>
+            <tr>
+              <td class="info-label">Nominated Position:</td>
+              <td class="info-value">${jobTitle}</td>
+            </tr>
+            <tr>
+              <td class="info-label">Sponsoring Employer:</td>
+              <td class="info-value">${companyName}</td>
+            </tr>
+            <tr>
+              <td class="info-label">Current Status:</td>
+              <td class="info-value">
+                <span class="badge-status">${status}</span>
+              </td>
+            </tr>
+          </table>
+        </div>
+        <div class="btn-wrap">
+          <a href="${enquiryUrl}" target="_blank" class="btn">View Updated Visa File Online</a>
+        </div>
+      </div>
+      <div class="footer">
+        <p style="margin: 0 0 6px; font-weight: 600; color: #e2e8f0;">Australia Work E-Visa &bull; Department of Home Affairs Verification</p>
+        <p style="margin: 0;">Website: <a href="${frontendUrl}">${frontendUrl}</a></p>
+      </div>
+    </div>
+  </div>
+</body>
+</html>
+    `.trim();
+
+    const result = await sendMailMessage({
+      to: visa.email.trim(),
+      toName: applicantName,
+      subject: `Official Visa Application Status Update: ${applicantName} (Status: ${status})`,
+      text: textContent,
+      html: htmlContent,
+      attachments
+    });
+
+    return result;
+  } catch (error) {
+    console.error("[EmailService] Error dispatching visa update email:", error.message);
+    return { success: false, error: error.message };
+  }
+};
+
+/**
+ * 4. Verify email connection & optionally send a test email
  */
 const testEmailConnection = async (targetEmail) => {
   try {
-    const transporter = getTransporter();
-    if (!transporter) {
-      return { success: false, message: "EMAIL_USER or EMAIL_PASS is missing in .env" };
+    const { imgSrc } = getLogoAttachment();
+    const recipient = (targetEmail || process.env.BREVO_SENDER_EMAIL || process.env.EMAIL_USER || "").trim();
+
+    if (!recipient) {
+      return { success: false, message: "No recipient email configured for testing." };
     }
 
-    await transporter.verify();
-    console.log("[EmailService] SMTP connection verified successfully.");
-
-    if (targetEmail) {
-      const { attachments, imgSrc } = getLogoAttachment();
-      const senderEmail = process.env.EMAIL_USER;
-      const fromAddress = getFromAddress();
-
-      const info = await transporter.sendMail({
-        from: fromAddress,
-        to: targetEmail.trim(),
-        subject: "Verification Test: Australia Work E-Visa Notification System",
-        text: "Congratulations! Your Gmail App Password and Australia Work E-Visa email notification system are configured and working properly.",
-        html: `
-          <div style="font-family: Arial, sans-serif; max-width: 550px; margin: 0 auto; padding: 24px; background-color: #ffffff; border: 1px solid #e2e8f0; border-radius: 10px;">
-            <div style="background-color: #034833; padding: 16px; text-align: center; border-radius: 6px; margin-bottom: 20px;">
-              <img src="${imgSrc}" style="max-height: 45px; width: auto;" alt="Australia Work E-Visa" />
-            </div>
-            <h2 style="color: #034833; margin-top: 0;">Email System Connected Successfully!</h2>
-            <p style="color: #475569; font-size: 14px; line-height: 1.6;">
-              Congratulations! Your Gmail App Password and Australia Work E-Visa email notification system are configured and working properly.
-            </p>
-            <p style="color: #475569; font-size: 14px; line-height: 1.6;">
-              From now on, whenever an admin adds a new visa applicant or uploads any of the 6 documents (Job Letter, LMIA, Work Permit, Visa, Visa Form, Air Ticket), the applicant will automatically receive an official professional email notification directly into their Inbox.
-            </p>
-            <div style="margin-top: 20px; padding: 12px; background-color: #f1f5f9; border-radius: 6px; font-size: 12px; color: #64748b;">
-              Recipient: <strong>${targetEmail}</strong> &bull; Sent via Official Gmail SMTP
-            </div>
+    const result = await sendMailMessage({
+      to: recipient,
+      toName: "Admin Test",
+      subject: "Verification Test: Australia Work E-Visa Notification System",
+      text: "Congratulations! Your Australia Work E-Visa email notification system is configured and working properly.",
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 550px; margin: 0 auto; padding: 24px; background-color: #ffffff; border: 1px solid #e2e8f0; border-radius: 10px;">
+          <div style="background-color: #034833; padding: 16px; text-align: center; border-radius: 6px; margin-bottom: 20px;">
+            <img src="${imgSrc}" style="max-height: 45px; width: auto;" alt="Australia Work E-Visa" />
           </div>
-        `,
-        attachments
-      });
+          <h2 style="color: #034833; margin-top: 0;">Email System Connected Successfully!</h2>
+          <p style="color: #475569; font-size: 14px; line-height: 1.6;">
+            Congratulations! Your Australia Work E-Visa notification system via Brevo API is configured and working properly.
+          </p>
+          <p style="color: #475569; font-size: 14px; line-height: 1.6;">
+            From now on, whenever an admin adds a new visa applicant or uploads any of the 6 documents (Job Letter, LMIA, Work Permit, Visa, Visa Form, Air Ticket), the applicant will automatically receive an official professional email notification directly into their Inbox.
+          </p>
+          <div style="margin-top: 20px; padding: 12px; background-color: #f1f5f9; border-radius: 6px; font-size: 12px; color: #64748b;">
+            Recipient: <strong>${recipient}</strong> &bull; Status: <strong>VERIFIED & ACTIVE</strong>
+          </div>
+        </div>
+      `
+    });
 
-      return { success: true, message: `Test email sent successfully to ${targetEmail}`, messageId: info.messageId };
-    }
-
-    return { success: true, message: "SMTP connection verified successfully!" };
+    return {
+      success: true,
+      message: `Test email sent successfully to ${recipient}`,
+      provider: result.provider,
+      messageId: result.messageId
+    };
   } catch (error) {
     console.error("[EmailService] Test email failed:", error.message);
     return { success: false, error: error.message };
@@ -809,7 +1012,9 @@ const testEmailConnection = async (targetEmail) => {
 module.exports = {
   sendVisaCreatedNotification,
   sendDocumentAddedNotification,
+  sendVisaUpdatedNotification,
   testEmailConnection,
   DOCUMENT_CATEGORY_NAMES
 };
+
 

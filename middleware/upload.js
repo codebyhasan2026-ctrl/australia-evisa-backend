@@ -78,9 +78,24 @@ const deleteFromCloudinary = async (imageUrl) => {
   }
 };
 
+const uploadBase64ToCloudinary = async (base64String) => {
+  if (!base64String || typeof base64String !== "string") return "";
+  if (!base64String.startsWith("data:image")) return base64String;
+  const result = await cloudinary.uploader.upload(base64String, {
+    folder: "australia_visas",
+    transformation: [
+      { width: 600, height: 600, crop: "limit" },
+      { quality: "auto" }
+    ]
+  });
+  return result.secure_url;
+};
+
 module.exports = {
   upload,
   uploadToCloudinary,
+  uploadBase64ToCloudinary,
   uploadDocumentToCloudinary,
   deleteFromCloudinary
 };
+

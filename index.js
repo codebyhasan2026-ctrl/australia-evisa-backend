@@ -11,7 +11,9 @@ const adminUserRoutes = require("./routes/adminUserRoutes");
 const adminDashboardRoutes = require("./routes/adminDashboardRoutes");
 const visaRoutes = require("./routes/visaRoutes");
 
-dotenv.config();
+const path = require("path");
+
+dotenv.config({ path: path.join(__dirname, ".env") });
 
 const app = express();
 
