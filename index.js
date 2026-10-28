@@ -40,6 +40,21 @@ app.get("/", (req, res) => {
   res.send("MERN Backend Running Successfully!");
 });
 
+// Health check endpoints for Cron jobs & Keep-Alive monitoring (Prevents Render from sleeping)
+const handleHealthCheck = (req, res) => {
+  const dbStatus = mongoose.connection.readyState === 1 ? "connected" : "disconnected";
+  return res.status(200).json({
+    status: "ok",
+    message: "Server is active and healthy",
+    uptimeSeconds: Math.floor(process.uptime()),
+    database: dbStatus,
+    timestamp: new Date().toISOString()
+  });
+};
+
+app.get("/health", handleHealthCheck);
+app.get("/api/health", handleHealthCheck);
+
 app.use("/api/auth", authRoutes);
 app.use("/api/admin", adminAuthRoutes);
 app.use("/api/admin", adminUserRoutes);
