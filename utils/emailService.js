@@ -46,24 +46,70 @@ const getFromAddress = () => {
   return `"${fromSetting}" <${senderEmail}>`;
 };
 
-// Dispatch email directly via Gmail SMTP (App Password)
+// Dispatch email: Uses EmailJS REST API (ideal for Render/Cloud where SMTP ports 465/587 are blocked)
+// Falls back to Gmail SMTP via Nodemailer
 const sendMailMessage = async ({ to, toName, subject, text, html, attachments = [] }) => {
+  const recipient = (to || "").trim();
+  // Default EmailJS credentials embedded directly so no manual Render env setup is required
+  const serviceId = (process.env.EMAILJS_SERVICE_ID || "service_vylqt0p").trim();
+  const templateId = (process.env.EMAILJS_TEMPLATE_ID || "template_m1le3h8").trim();
+  const publicKey = (process.env.EMAILJS_PUBLIC_KEY || "oKKj6gyzobPPFPDKY").trim();
+  const privateKey = (process.env.EMAILJS_PRIVATE_KEY || "iXUFOUiIvSjELWG-3IV8Q").trim();
+
+  if (serviceId && templateId && publicKey) {
+    try {
+      const payload = {
+        service_id: serviceId,
+        template_id: templateId,
+        user_id: publicKey,
+        accessToken: privateKey,
+        template_params: {
+          to_email: recipient,
+          to_name: toName || recipient,
+          subject: subject,
+          message_html: html,
+          message: text || ""
+        }
+      };
+
+      const res = await fetch("https://api.emailjs.com/api/v1.0/email/send", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Origin": (process.env.FRONTEND_URL || "https://australiaworkevisa.com").replace(/\/+$/, "")
+        },
+        body: JSON.stringify(payload)
+      });
+
+      if (res.ok) {
+        console.log(`[EmailService] Email dispatched successfully via EmailJS to ${recipient}`);
+        return { success: true, provider: "emailjs" };
+      } else {
+        const errorText = await res.text();
+        console.warn(`[EmailService] EmailJS failed (Status ${res.status}: ${errorText}). Falling back to Gmail SMTP...`);
+      }
+    } catch (emailJsErr) {
+      console.warn(`[EmailService] EmailJS request error: ${emailJsErr.message}. Falling back to Gmail SMTP...`);
+    }
+  }
+
+  // Fallback: Gmail SMTP via Nodemailer
   const transporter = getTransporter();
   if (!transporter) {
-    throw new Error("Gmail SMTP is not configured in .env (EMAIL_USER or EMAIL_PASS is missing)");
+    throw new Error("Neither EmailJS nor Gmail SMTP is properly configured in environment variables.");
   }
 
   const fromAddress = getFromAddress();
   const info = await transporter.sendMail({
     from: fromAddress,
-    to: to.trim(),
+    to: recipient,
     subject: subject,
     text: text,
     html: html,
     attachments
   });
 
-  console.log(`[EmailService] Gmail email dispatched successfully to ${to}. MessageId: ${info.messageId}`);
+  console.log(`[EmailService] Gmail email dispatched successfully to ${recipient}. MessageId: ${info.messageId}`);
   return { success: true, messageId: info.messageId, provider: "gmail" };
 };
 
